@@ -7,14 +7,43 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:unicode"
 
-kernelProvidesWatchesInfo := false
-
 InotifyData :: struct #packed {
 	pid:       uint,
 	uid:       uint,
 	instances: uint,
 	watches:   uint,
 	name:      string,
+}
+
+kernelProvidesWatchesInfo := false
+processesData: []InotifyData
+
+getWatchesFromFile :: proc(filename: string) -> uint {
+	data, err := os2.read_entire_file_from_path(filename, context.allocator)
+
+	if err != nil {
+		return 0
+	}
+
+	i := 0
+	searchTerm := []byte{'i', 'n', 'o', 't', 'i', 'f', 'y', ' '}
+	count: uint = 0
+
+	for i <= len(data) {
+		if bytes.compare(data[i:i + len(searchTerm)], searchTerm) == 0 {
+			count += 1
+		}
+
+		index := bytes.index(data[i:], []u8{'\n'})
+
+		(index != -1) or_break
+
+		i += index + 1
+
+		(i + (len(searchTerm) + 1) <= len(data)) or_break
+	}
+
+	return count
 }
 
 getUid :: proc(filename: string) -> (uint, os2.Error) {
@@ -65,11 +94,11 @@ getUid :: proc(filename: string) -> (uint, os2.Error) {
 	return uid, nil
 }
 
-main :: proc() {
+parseInotifyData :: proc() {
 	processes, readProcErr := os2.read_all_directory_by_path("/proc", context.allocator)
 	assert(readProcErr == nil, "failed to read /proc")
 
-	processesData: []InotifyData = make([]InotifyData, len(processes), context.allocator)
+	processesData = make([]InotifyData, len(processes), context.allocator)
 	defer delete(processesData)
 	i: int = 0
 
@@ -88,7 +117,7 @@ main :: proc() {
 		)
 
 		if readlinkError != nil {
-			if readlinkError != .EACCES {
+			if readlinkError != .EACCES && readlinkError != .Not_Exist {
 				fmt.printf("failed to readlink of exe for %s: %s\n", process.name, readlinkError)
 			}
 			continue
@@ -108,7 +137,9 @@ main :: proc() {
 		)
 
 		if readFdDirError != nil {
-			fmt.printf("failed to read dir fd for %s: %s\n", process.name, readFdDirError)
+			if readFdDirError != .EACCES && readFdDirError != .Not_Exist {
+				fmt.printf("failed to read dir fd for %s: %s\n", process.name, readFdDirError)
+			}
 			continue
 		}
 
@@ -121,7 +152,7 @@ main :: proc() {
 			fdPath, readlinkError := os2.read_link(fdFile.fullpath, context.allocator)
 
 			if readlinkError != nil {
-				if readlinkError != .EACCES || readlinkError != .Not_Exist {
+				if readlinkError != .EACCES && readlinkError != .Not_Exist {
 					fmt.printf(
 						"failed to readlink of fd for %s: %s\n",
 						process.name,
@@ -135,28 +166,45 @@ main :: proc() {
 
 			if fdName == "anon_inode:inotify" || fdName == "inotify" {
 				intances += 1
-				//read from fmt.tprintf("proc/%s/fdinfo/%s", process.name,fdFile.name)
+				watches += getWatchesFromFile(
+					fmt.tprintf("/proc/%s/fdinfo/%s", process.name, fdFile.name),
+				)
+			}
+
+			if !kernelProvidesWatchesInfo && watches > 0 {
+				kernelProvidesWatchesInfo = true
 			}
 		}
 
 		(intances > 0) or_continue
 
-		fmt.printf("%s: %d\n", name, intances)
+		fmt.printf("%s | intances: %d | watches: %d\n", name, intances, watches)
 
 		processData := InotifyData {
 			pid       = pid,
 			name      = name != "" ? name : execPath,
 			uid       = uid,
 			instances = intances,
-			watches   = 0,
+			watches   = watches,
 		}
 
 		processesData[i] = processData
 		i += 1
 	}
 
-	// data, err := os2.read_entire_file_from_path("/proc/1513/fdinfo/27", context.allocator)
-	// assert(err == nil, fmt.tprintf("failed to read from fd/27 %s", err))
-	//
-	// fmt.printf("data:\n %s\n", data)
+}
+
+main :: proc() {
+	parseInotifyData()
+	//NOTE: temp automatically remove all with 30k watches maybe put this behind some arg or flag
+	for process in processesData {
+		(process.watches >= 40_000) or_continue
+
+		err := os2.process_kill(os2.Process{pid = int(process.pid)})
+
+		if err != nil {
+			fmt.printf("failed to kill %s %s\n", process.name, err)
+		}
+	}
+	//TODO: tui part check how to termcl with https://github.com/dbrckovi/Simple-File-Commander
 }
