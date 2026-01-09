@@ -18,6 +18,31 @@ InotifyData :: struct #packed {
 kernelProvidesWatchesInfo := false
 processesData: []InotifyData
 
+sortProcessData :: proc() {
+	//select sort, to lazy to do quick sort
+	for i := 0; i < len(processesData); i += 1 {
+		maxValue := i
+
+		for j := i + 1; j < len(processesData); j += 1 {
+			if kernelProvidesWatchesInfo {
+				if processesData[j].watches > processesData[maxValue].watches {
+					maxValue = j
+				}
+			} else {
+				if processesData[j].instances > processesData[maxValue].instances {
+					maxValue = j
+				}
+			}
+		}
+
+		if maxValue != i {
+			temp := processesData[i]
+			processesData[i] = processesData[maxValue]
+			processesData[maxValue] = temp
+		}
+	}
+}
+
 getWatchesFromFile :: proc(filename: string) -> uint {
 	data, err := os2.read_entire_file_from_path(filename, context.allocator)
 
@@ -143,7 +168,7 @@ parseInotifyData :: proc() {
 			continue
 		}
 
-		intances: uint = 0
+		instances: uint = 0
 		watches: uint = 0
 
 		for fdFile in fdFilenames {
@@ -165,7 +190,7 @@ parseInotifyData :: proc() {
 			fdName := filepath.base(fdPath)
 
 			if fdName == "anon_inode:inotify" || fdName == "inotify" {
-				intances += 1
+				instances += 1
 				watches += getWatchesFromFile(
 					fmt.tprintf("/proc/%s/fdinfo/%s", process.name, fdFile.name),
 				)
@@ -176,15 +201,14 @@ parseInotifyData :: proc() {
 			}
 		}
 
-		(intances > 0) or_continue
+		(instances > 0) or_continue
 
-		fmt.printf("%s | intances: %d | watches: %d\n", name, intances, watches)
 
 		processData := InotifyData {
 			pid       = pid,
 			name      = name != "" ? name : execPath,
 			uid       = uid,
-			instances = intances,
+			instances = instances,
 			watches   = watches,
 		}
 
@@ -196,6 +220,16 @@ parseInotifyData :: proc() {
 
 main :: proc() {
 	parseInotifyData()
+	sortProcessData()
+	for process in processesData {
+		(process.instances > 0) or_continue
+		fmt.printf(
+			"%s | intances: %d | watches: %d\n",
+			process.name,
+			process.instances,
+			process.watches,
+		)
+	}
 	//NOTE: temp automatically remove all with 30k watches maybe put this behind some arg or flag
 	for process in processesData {
 		(process.watches >= 40_000) or_continue
