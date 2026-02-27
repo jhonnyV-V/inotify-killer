@@ -232,7 +232,7 @@ main :: proc() {
 	}
 	//NOTE: temp automatically remove all with 30k watches maybe put this behind some arg or flag
 	for process in processesData {
-		(process.watches >= 40_000) or_continue
+		(process.watches >= 20_000) or_continue
 
 		err := os2.process_kill(os2.Process{pid = int(process.pid)})
 
