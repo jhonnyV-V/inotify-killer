@@ -142,7 +142,7 @@ parseInotifyData :: proc() {
 		)
 
 		if readlinkError != nil {
-			if readlinkError != .EACCES && readlinkError != .Not_Exist {
+			if readlinkError != .EACCES && readlinkError != .Not_Exist && readlinkError != .Permission_Denied {
 				fmt.printf("failed to readlink of exe for %s: %s\n", process.name, readlinkError)
 			}
 			continue
@@ -221,6 +221,14 @@ parseInotifyData :: proc() {
 main :: proc() {
 	parseInotifyData()
 	sortProcessData()
+	threesoldForTermination := 20_000
+	if len(os.args) > 1 && os.args[1] != "" {
+		v, ok := strconv.parse_int(os.args[1], 10)
+		if ok && v > 0 {
+			threesoldForTermination = v
+		}
+	}
+
 	for process in processesData {
 		(process.instances > 0) or_continue
 		fmt.printf(
