@@ -2,7 +2,7 @@ package main
 
 import "core:bytes"
 import "core:fmt"
-import "core:os/os2"
+import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:unicode"
@@ -44,7 +44,7 @@ sortProcessData :: proc() {
 }
 
 getWatchesFromFile :: proc(filename: string) -> uint {
-	data, err := os2.read_entire_file_from_path(filename, context.allocator)
+	data, err := os.read_entire_file_from_path(filename, context.allocator)
 
 	if err != nil {
 		return 0
@@ -71,8 +71,8 @@ getWatchesFromFile :: proc(filename: string) -> uint {
 	return count
 }
 
-getUid :: proc(filename: string) -> (uint, os2.Error) {
-	data, err := os2.read_entire_file_from_path(filename, context.allocator)
+getUid :: proc(filename: string) -> (uint, os.Error) {
+	data, err := os.read_entire_file_from_path(filename, context.allocator)
 
 	if err != nil {
 		return 0, err
@@ -120,7 +120,7 @@ getUid :: proc(filename: string) -> (uint, os2.Error) {
 }
 
 parseInotifyData :: proc() {
-	processes, readProcErr := os2.read_all_directory_by_path("/proc", context.allocator)
+	processes, readProcErr := os.read_all_directory_by_path("/proc", context.allocator)
 	assert(readProcErr == nil, "failed to read /proc")
 
 	processesData = make([]InotifyData, len(processes), context.allocator)
@@ -136,7 +136,7 @@ parseInotifyData :: proc() {
 			continue
 		}
 
-		execPath, readlinkError := os2.read_link(
+		execPath, readlinkError := os.read_link(
 			fmt.tprintf("/proc/%s/exe", process.name),
 			context.allocator,
 		)
@@ -156,7 +156,7 @@ parseInotifyData :: proc() {
 			continue
 		}
 
-		fdFilenames, readFdDirError := os2.read_all_directory_by_path(
+		fdFilenames, readFdDirError := os.read_all_directory_by_path(
 			fmt.tprintf("/proc/%s/fd", process.name),
 			context.allocator,
 		)
@@ -174,7 +174,7 @@ parseInotifyData :: proc() {
 		for fdFile in fdFilenames {
 			(fdFile.type == .Symlink) or_continue
 
-			fdPath, readlinkError := os2.read_link(fdFile.fullpath, context.allocator)
+			fdPath, readlinkError := os.read_link(fdFile.fullpath, context.allocator)
 
 			if readlinkError != nil {
 				if readlinkError != .EACCES && readlinkError != .Not_Exist {
@@ -234,7 +234,7 @@ main :: proc() {
 	for process in processesData {
 		(process.watches >= 20_000) or_continue
 
-		err := os2.process_kill(os2.Process{pid = int(process.pid)})
+		err := os.process_kill(os.Process{pid = int(process.pid)})
 
 		if err != nil {
 			fmt.printf("failed to kill %s %s\n", process.name, err)
